@@ -196,7 +196,9 @@ where
                     }
                 }
             }
+            tracing::trace!("end of loop");
         }
+        tracing::trace!("end of stream");
     }
 }
 
