@@ -81,7 +81,7 @@ use std::borrow::Cow;
 use std::ops::Drop;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use tracing::trace;
+use tracing::{trace, Instrument};
 use types::ServerInfo;
 
 #[doc(hidden)]
@@ -105,6 +105,14 @@ fn current_counter() -> u64 {
     VAR_COUNTER.load(Ordering::SeqCst)
 }
 
+#[doc(hidden)]
+pub static SESSION_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+#[doc(hidden)]
+pub fn session_counter() -> u64 {
+    SESSION_COUNTER.fetch_add(1, Ordering::SeqCst)
+}
+
 /// Custom result returned by various ReQL commands
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -113,6 +121,7 @@ type Receiver = UnboundedReceiver<Result<(ResponseType, Response)>>;
 
 #[derive(Debug)]
 struct InnerSession {
+    id: u64,
     db: Mutex<Cow<'static, str>>,
     stream: Mutex<TcpStream>,
     channels: DashMap<u64, Sender>,
@@ -172,6 +181,9 @@ pub struct Session {
 
 impl Session {
     pub fn connection(&self) -> Result<Connection> {
+        let span = tracing::info_span!("connection", session_id = self.inner.id);
+        let _ = span.enter();
+
         self.inner.broken()?;
         self.inner.change_feed()?;
         let token = self.inner.token();
@@ -223,13 +235,16 @@ impl Session {
     /// ```
     ///
     pub async fn noreply_wait(&self) -> Result<()> {
+        let span = tracing::info_span!("noreply_wait", session_id = self.inner.id);
+        let _ = span.enter();
+
         let mut conn = self.connection()?;
         let payload = Payload(QueryType::NoreplyWait, None, Default::default());
         trace!(
             "waiting for noreply operations to finish; token: {}",
             conn.token
         );
-        let (typ, _) = conn.request(&payload, false).await?;
+        let (typ, _) = conn.request(&payload, false).instrument(span).await?;
         trace!(
             "session.noreply_wait() run; token: {}, response type: {:?}",
             conn.token,
@@ -239,6 +254,9 @@ impl Session {
     }
 
     pub async fn server(&self) -> Result<ServerInfo> {
+        let span = tracing::info_span!("server", session_id = self.inner.id);
+        let _ = span.enter();
+
         let mut conn = self.connection()?;
         let payload = Payload(QueryType::ServerInfo, None, Default::default());
         trace!("retrieving server information; token: {}", conn.token);
@@ -263,6 +281,7 @@ impl Session {
 
 #[derive(Debug, Clone)]
 pub struct Connection {
+    session_id: u64,
     session: Session,
     rx: Arc<Mutex<Receiver>>,
     token: u64,
@@ -272,6 +291,7 @@ pub struct Connection {
 impl Connection {
     fn new(session: Session, rx: Receiver, token: u64) -> Connection {
         Connection {
+            session_id: session.inner.id,
             session,
             token,
             rx: Arc::new(Mutex::new(rx)),
@@ -298,6 +318,9 @@ impl Connection {
     where
         T: cmd::close::Arg,
     {
+        let span = tracing::info_span!("close", session_id = self.session_id);
+        let _ = span.enter();
+
         if !self.session.inner.is_change_feed() {
             trace!(
                 "ignoring conn.close() called on a normal connection; token: {}",

@@ -15,7 +15,7 @@ use serde_json::Value;
 use std::borrow::Cow;
 use std::str;
 use std::sync::atomic::Ordering;
-use tracing::trace;
+use tracing::{trace, Instrument};
 
 const DATA_SIZE: usize = 4;
 const TOKEN_SIZE: usize = 8;
@@ -140,7 +140,8 @@ where
 {
     try_stream! {
         let (mut conn, mut opts) = arg.into_run_opts()?;
-        opts = opts.default_db(&conn.session).await;
+        let span = tracing::info_span!("run", session_id = conn.session_id);
+        opts = opts.default_db(&conn.session).instrument(span.clone()).await;
         let change_feed = query.change_feed();
         if change_feed {
             conn.session.inner.mark_change_feed();
@@ -148,7 +149,8 @@ where
         let noreply = opts.noreply.unwrap_or_default();
         let mut payload = Payload(QueryType::Start, Some(Query(&query)), opts);
         loop {
-            let (response_type, resp) = conn.request(&payload, noreply).await?;
+            let (response_type, resp) = conn.request(&payload, noreply).instrument(span.clone()).await?;
+            let _ = span.enter();
             trace!("yielding response; token: {}", conn.token);
             match response_type {
                 ResponseType::SuccessAtom => {

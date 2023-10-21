@@ -2,7 +2,7 @@
 
 use super::args::Args;
 use super::{bytes_to_string, StaticString};
-use crate::{err, InnerSession, Result, Session};
+use crate::{err, session_counter, InnerSession, Result, Session};
 use async_net::{AsyncToSocketAddrs, TcpStream};
 use dashmap::DashMap;
 use futures::io::{AsyncReadExt, AsyncWriteExt};
@@ -15,7 +15,7 @@ use std::borrow::Cow;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
-use tracing::trace;
+use tracing::{trace, Instrument};
 
 const BUF_SIZE: usize = 1024;
 const NULL_BYTE: u8 = b'\0';
@@ -103,8 +103,11 @@ where
         Some(addr) => TcpStream::connect(addr).await?,
         None => TcpStream::connect((options.host.as_ref(), options.port)).await?,
     };
+    let id = session_counter();
+    let span = tracing::info_span!("connect_new", session_id = id);
     let inner = InnerSession {
-        stream: Mutex::new(handshake(stream, &options).await?),
+        id,
+        stream: Mutex::new(handshake(stream, &options).instrument(span).await?),
         db: Mutex::new(options.db),
         channels: DashMap::new(),
         token: AtomicU64::new(0),
