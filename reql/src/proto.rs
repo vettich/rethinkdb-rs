@@ -8,13 +8,14 @@ use std::collections::{HashMap, VecDeque};
 use std::{fmt, str};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub(crate) enum Datum {
+pub enum Datum {
     Null,
     Bool(bool),
     Number(Number),
     String(String),
     Array(Vec<Datum>),
     Object(HashMap<String, Datum>),
+    Value(Value),
 }
 
 impl Default for Datum {
@@ -35,6 +36,7 @@ impl Serialize for Datum {
             Self::String(string) => string.serialize(serializer),
             Self::Array(arr) => (TermType::MakeArray as i32, arr).serialize(serializer),
             Self::Object(map) => map.serialize(serializer),
+            Self::Value(value) => value.serialize(serializer),
         }
     }
 }
@@ -78,7 +80,8 @@ pub struct Command {
     datum: Option<super::Result<Datum>>,
     #[doc(hidden)]
     pub args: VecDeque<super::Result<Command>>,
-    opts: Option<super::Result<Datum>>,
+    #[doc(hidden)]
+    pub opts: Option<super::Result<Datum>>,
     change_feed: bool,
 }
 
@@ -100,7 +103,7 @@ impl Command {
         Self::new(TermType::Var).with_arg(index)
     }
 
-    pub(crate) fn with_parent(mut self, parent: Command) -> Self {
+    pub fn with_parent(mut self, parent: Command) -> Self {
         self.change_feed = self.change_feed || parent.change_feed;
         self.args.push_front(Ok(parent));
         self
@@ -116,7 +119,7 @@ impl Command {
         self
     }
 
-    pub(crate) fn with_opts<T>(mut self, opts: T) -> Self
+    pub fn with_opts<T>(mut self, opts: T) -> Self
     where
         T: Serialize,
     {

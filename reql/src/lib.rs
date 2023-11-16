@@ -87,7 +87,7 @@ use types::ServerInfo;
 #[doc(hidden)]
 pub use cmd::func::Func;
 pub use err::*;
-pub use proto::Command;
+pub use proto::{Command, Datum};
 pub use reql_macros::func;
 #[doc(inline)]
 pub use reql_types as types;
