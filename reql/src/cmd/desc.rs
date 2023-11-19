@@ -1,4 +1,4 @@
-use crate::{cmd, Command};
+use crate::{cmd, Command, Func};
 use ql2::term::TermType;
 
 #[derive(Debug, Clone)]
@@ -20,5 +20,12 @@ where
 {
     fn arg(self) -> cmd::Arg<()> {
         Command::from_json(self.into()).arg()
+    }
+}
+
+impl Arg for Func {
+    fn arg(self) -> cmd::Arg<()> {
+        let Func(func) = self;
+        func.arg()
     }
 }
